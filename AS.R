@@ -1,3 +1,56 @@
+library(limma)
+library(ggplot2)
+inputFile="geneMatrix.txt"  
+conFile="s1.txt" 
+treatFile="s2.txt"
+logFCfilter=0.585       
+adj.P.Val.Filter=0.05 
+rt=read.table(inputFile, header=T, sep="\t", check.names=F)
+rt=as.matrix(rt)
+rownames(rt)=rt[,1]
+exp=rt[,2:ncol(rt)]
+dimnames=list(rownames(exp),colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)),nrow=nrow(exp),dimnames=dimnames)
+rt=avereps(data)
+qx=as.numeric(quantile(rt, c(0, 0.25, 0.5, 0.75, 0.99, 1.0), na.rm=T))
+LogC=( (qx[5]>100) || ( (qx[6]-qx[1])>50 && qx[2]>0) )
+if(LogC){
+  rt[rt<0]=0
+  rt=log2(rt+1)}
+data=normalizeBetweenArrays(rt)
+sample1=read.table(conFile, header=F, sep="\t", check.names=F)
+sample2=read.table(treatFile, header=F, sep="\t", check.names=F)
+sampleName1=gsub("^ | $", "", as.vector(sample1[,1]))
+sampleName2=gsub("^ | $", "", as.vector(sample2[,1]))
+conData=data[,sampleName1]
+treatData=data[,sampleName2]
+data=cbind(conData,treatData)
+conNum=ncol(conData)
+treatNum=ncol(treatData)
+Type=c(rep("con",conNum), rep("treat",treatNum))
+design <- model.matrix(~0+factor(Type))
+colnames(design) <- c("con","treat")
+fit <- lmFit(data,design)
+cont.matrix<-makeContrasts(treat-con,levels=design)
+fit2 <- contrasts.fit(fit, cont.matrix)
+fit2 <- eBayes(fit2)
+allDiff=topTable(fit2, adjust='fdr', number=200000)
+allDiffOut=rbind(id=colnames(allDiff),allDiff)
+diffSig=allDiff[with(allDiff, (abs(logFC)>logFCfilter & adj.P.Val < adj.P.Val.Filter )), ]
+diffSigOut=rbind(id=colnames(diffSig),diffSig)
+write.table(diffSigOut,file="diff.txt",sep="\t",quote=F,col.names=F)
+allDiff$logFC[allDiff$logFC>20]=20
+allDiff$logFC[allDiff$logFC< -20]=-20
+Significant=ifelse((allDiff$adj.P.Val<adj.P.Val.Filter & abs(allDiff$logFC)>logFCfilter), ifelse(allDiff$logFC>logFCfilter,"Up","Down"), "Not")
+p = ggplot(allDiff, aes(logFC, -log10(adj.P.Val)))+
+  geom_point(aes(col=Significant))+
+  scale_color_manual(values=c("green", "black", "red"))+
+  labs(title = " ")+
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold"))
+p=p+theme_bw()
+pdf(file="vol.pdf", width=5.5, height=5)
+print(p)
+dev.off()
 library("RCircos")
 cytoBandIdeogram=read.table("refer.txt", header=T, sep="\t", check.names=F)
 chr.exclude <- NULL
@@ -461,8 +514,8 @@ library(ggplot2)
 library(ggalluvial)
 library(svglite)
 library(CellChat)
-expFile="expMatirx.txt" 
-annFile="cellAnn.txt"
+expFile="" 
+annFile=""
 rt=read.table(expFile, header=T, sep="\t", check.names=F)
 rt=as.matrix(rt)
 rownames(rt)=rt[,1]
@@ -494,6 +547,7 @@ dev.off()
 pdf(file="cellNetworkWeight.pdf", width=7, height=6)
 netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction strength")
 dev.off()
+pathways.show="" 
 pdf(file=paste0("COMM.", pathways.show , ".hierarchy.pdf"), width=12, height=6)
 hierarchy=netVisual_aggregate(cellchat, signaling=pathways.show, layout="hierarchy",  vertex.receiver=seq(1,4), vertex.size = groupSize)
 print(hierarchy)
